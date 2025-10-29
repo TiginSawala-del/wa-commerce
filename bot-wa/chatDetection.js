@@ -703,6 +703,141 @@ client.on("message", async (message) => {
     await message.reply("✅ AI learning data telah di-reset");
   }
 
+  // PROMOTE ADMIN: !promote @user atau reply pesan user dengan !promote
+  if (text.startsWith("!promote")) {
+    try {
+      let targetUser = null;
+
+      // Cek apakah ada mention
+      const mentions = await message.getMentions();
+      if (mentions.length > 0) {
+        targetUser = mentions[0].id._serialized;
+      }
+      // Cek apakah reply ke pesan user
+      else if (message.hasQuotedMsg) {
+        const quotedMsg = await message.getQuotedMessage();
+        targetUser = quotedMsg.author || quotedMsg.from;
+      }
+
+      if (!targetUser) {
+        await message.reply(
+          "❌ Cara pakai: !promote @user atau reply pesan user dengan !promote"
+        );
+        return;
+      }
+
+      // Pastikan targetUser adalah string
+      const userIdString =
+        typeof targetUser === "string"
+          ? targetUser
+          : targetUser._serialized || targetUser.toString();
+
+      await chat.promoteParticipants([userIdString]);
+
+      // Extract nomor untuk display
+      const userNumber = userIdString.split("@")[0];
+
+      // Kirim reply TANPA mentions untuk menghindari error
+      await message.reply(
+        `✅ *Admin Promoted*\n\n${userNumber} sekarang adalah admin grup! 👑`
+      );
+      console.log(`✅ User ${userIdString} di-promote jadi admin`);
+    } catch (error) {
+      console.error("❌ Gagal promote admin:", error);
+      await message.reply(
+        "⚠️ Gagal promote admin. Pastikan bot adalah admin dan user adalah member grup!"
+      );
+    }
+  }
+
+  // DEMOTE ADMIN: !demote @user atau reply pesan admin dengan !demote
+  if (text.startsWith("!demote")) {
+    try {
+      let targetUser = null;
+
+      const mentions = await message.getMentions();
+      if (mentions.length > 0) {
+        targetUser = mentions[0].id._serialized;
+      } else if (message.hasQuotedMsg) {
+        const quotedMsg = await message.getQuotedMessage();
+        targetUser = quotedMsg.author || quotedMsg.from;
+      }
+
+      if (!targetUser) {
+        await message.reply(
+          "❌ Cara pakai: !demote @user atau reply pesan admin dengan !demote"
+        );
+        return;
+      }
+
+      // Pastikan targetUser adalah string
+      const userIdString =
+        typeof targetUser === "string"
+          ? targetUser
+          : targetUser._serialized || targetUser.toString();
+
+      await chat.demoteParticipants([userIdString]);
+
+      // Extract nomor untuk display
+      const userNumber = userIdString.split("@")[0];
+
+      // Kirim reply TANPA mentions untuk menghindari error
+      await message.reply(
+        `✅ *Admin Demoted*\n\n${userNumber} tidak lagi admin grup.`
+      );
+      console.log(`✅ User ${userIdString} di-demote dari admin`);
+    } catch (error) {
+      console.error("❌ Gagal demote admin:", error);
+      await message.reply(
+        "⚠️ Gagal demote admin. Pastikan bot adalah admin dan target adalah admin grup!"
+      );
+    }
+  }
+
+  if (text.startsWith("!kick")){
+    try {
+      let targetUser = null;
+
+      const mentions = await message.getMentions();
+      if (mentions.length > 0) {
+        targetUser = mentions[0].id._serialized;
+      } else if (message.hasQuotedMsg) {
+        const quotedMsg = await message.getQuotedMessage();
+        targetUser = quotedMsg.author || quotedMsg.from;
+      }
+
+      if (!targetUser) {
+        await message.reply(
+          "❌ Cara pakai: !demote @user atau reply pesan admin dengan !demote"
+        );
+        return;
+      }
+
+      // Pastikan targetUser adalah string
+      const userIdString =
+        typeof targetUser === "string"
+          ? targetUser
+          : targetUser._serialized || targetUser.toString();
+
+      await chat.removeParticipants([userIdString]);
+
+      // Extract nomor untuk display
+      const userNumber = userIdString.split("@")[0];
+
+      // Kirim reply TANPA mentions untuk menghindari error
+      await message.reply(
+        `✅ *Admin Demoted*\n\n${userNumber} berhasil dikeluarkan.`
+      );
+      console.log(`✅ User ${userIdString} dikeluarkan dari grup`);
+    } catch (error) {
+      console.error("❌ Gagal mengeluarkan user:", error);
+      await message.reply(
+        "⚠️ Gagal mengeluarkan user. Pastikan bot adalah admin dan target adalah admin grup!"
+      );
+    }
+
+  }
+
   if (text === "!bot-help") {
     const helpMsg =
       `🤖 *Bot Command List*\n\n` +
