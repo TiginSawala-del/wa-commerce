@@ -16,8 +16,18 @@ client.on("ready", () => {
 client.initialize();
 
 const api = async (req, res) => {
-    let phone_number = req.query.phone_number;
-    const message = req.query.message;
+    const token = "awkdawndawodnawondaw"
+    let phone_number = req.query.phone_number || req.body.phone_number;
+    let bodyToken = req.query.token || req.body.token;
+    const message = req.query.message || req.body.message;
+    
+
+    if( token !== bodyToken){
+        return res.status(401).json({
+            error: true,
+            message: "Invalid Token",
+        });
+    }
 
     try {
         if (phone_number.startsWith("0")) {
