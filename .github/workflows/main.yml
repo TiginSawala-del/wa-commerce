@@ -1,0 +1,56 @@
+name: Deploy WA Commerce Apps
+
+
+on:
+ push:
+   branches:
+     - staging
+env:
+ IMAGE_NAME: wa-commerce
+ GHCR_REGISTRY: ghcr.io
+ GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
+ GHCR_PAT: ${{ secrets.GHCR_PAT }}
+ DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+ API_TOKEN: ${{ secrets.API_TOKEN }}
+ STACK_STAGING: wa-commerce
+ IMAGE_TAG: latest
+
+
+jobs:
+ build-and-push:
+   runs-on: ubuntu-latest
+   steps:
+     - name: Checkout Repository
+       uses: actions/checkout@v4
+
+
+     - name: Login to GHCR
+       run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ secrets.GHCR_USERNAME }} --password-stdin
+
+
+     - name: Set Image Tag
+       id: set-tag
+       run: |
+         if [[ "${{ github.ref }}" == refs/heads/staging ]]; then
+           echo "IMAGE_TAG=latest" >> $GITHUB_ENV
+         elif [[ "${{ github.ref }}" == refs/heads/production ]]; then
+           echo "IMAGE_TAG=latest" >> $GITHUB_ENV
+         else
+           echo "IMAGE_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+         fi
+
+
+     - name: Build and Push Docker Image
+       run: |
+         docker build -t $GHCR_REGISTRY/$GHCR_USERNAME/$IMAGE_NAME:$IMAGE_TAG --build-arg ENV_BASE64="${{ secrets.ENV_BASE64 }}" .
+         docker push $GHCR_REGISTRY/$GHCR_USERNAME/$IMAGE_NAME:$IMAGE_TAG
+
+
+ deploy:
+   needs: build-and-push
+   runs-on: ubuntu-latest
+   steps:
+     - name: Trigger Swarmpit Deployment
+       run: |
+         curl --location --request POST "${{ env.DEPLOY_URL }}/api/stacks/${{ env.STACK_STAGING }}/redeploy" \
+           --header "Authorization: ${{ env.API_TOKEN }}"
