@@ -1,8 +1,24 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const fs = require('fs');
 const path = require('path');
+const express = require('express');
 const waController = require('./controllers/waControllers');
+
+// ========================
+// EXPRESS SETUP
+// ========================
+const app = express();
+app.use(express.json());
+
+// ========================
+// STATE TRACKING
+// ========================
+let isAuthenticated = false;
+let qrDisplayed = false;
+let disconnectCount = 0;
+let currentQR = null;
 
 // ========================
 // CLEANUP FUNCTION
@@ -29,7 +45,7 @@ const cleanupAuth = () => {
 cleanupAuth();
 
 // ========================
-// CLIENT CONFIGURATION (MINIMAL & STABLE)
+// CLIENT CONFIGURATION
 // ========================
 const client = new Client({
     authStrategy: new LocalAuth({
@@ -45,7 +61,7 @@ const client = new Client({
             '--disable-web-security',
             '--disable-features=IsolateOrigins,site-per-process'
         ],
-        timeout: 120000  // 2 menit timeout
+        timeout: 120000
     },
     restartOnCrash: true,
     takeoverOnConflict: true,
@@ -53,24 +69,40 @@ const client = new Client({
 });
 
 // ========================
-// STATE TRACKING
-// ========================
-let isAuthenticated = false;
-let qrDisplayed = false;
-let disconnectCount = 0;
-
-// ========================
 // EVENT HANDLERS
 // ========================
 
 client.on('qr', (qr) => {
-    disconnectCount = 0; // Reset counter saat dapat QR baru
+    disconnectCount = 0;
+    currentQR = qr; // Simpan QR Code
     
     if (!qrDisplayed) {
         console.log('\n========================================');
         console.log('📱 SCAN QR CODE DENGAN WHATSAPP ANDA 👇');
         console.log('========================================\n');
         qrcode.generate(qr, { small: true });
+        
+        // Save QR ke file PNG dengan async handling
+        QRCode.toFile(
+            path.join(__dirname, 'wa_qr_latest.png'),
+            qr,
+            { 
+                errorCorrectionLevel: 'M',
+                type: 'image/png',
+                width: 400,
+                margin: 2
+            },
+            (err) => {
+                if (err) {
+                    console.error('❌ Error saving QR:', err.message);
+                } else {
+                    console.log('✅ QR Code PNG saved successfully');
+                    console.log('📡 Access via: http://localhost:3000/api/wa/qr');
+                    console.log('🔗 Atau buka: http://localhost:3000/scan');
+                }
+            }
+        );
+        
         console.log('⏳ Tunggu hingga terkoneksi (30-60 detik)...\n');
         qrDisplayed = true;
     }
@@ -81,6 +113,7 @@ client.on('authenticated', (session) => {
     console.log('💾 Session disimpan secara lokal...');
     isAuthenticated = true;
     qrDisplayed = false;
+    currentQR = null;
 });
 
 client.on('auth_failure', (msg) => {
@@ -105,7 +138,6 @@ client.on('disconnected', (reason) => {
     isAuthenticated = false;
     disconnectCount++;
     
-    // Jika disconnect lebih dari 3x, cleanup dan exit
     if (disconnectCount > 3) {
         console.log('\n🛑 Disconnect berulang kali, cleaning up...');
         cleanupAuth();
@@ -162,6 +194,86 @@ client.on('message', async (message) => {
 });
 
 // ========================
+// API ENDPOINTS
+// ========================
+
+// Get QR Code (serve PNG file)
+app.get('/api/wa/qr', (req, res) => {
+    try {
+        const qrPath = path.join(__dirname, 'wa_qr_latest.png');
+        
+        if (!fs.existsSync(qrPath)) {
+            return res.status(400).json({
+                success: false,
+                message: 'QR Code not available yet',
+                status: isAuthenticated ? 'authenticated' : 'pending'
+            });
+        }
+
+        // Serve PNG file langsung
+        res.type('image/png');
+        res.sendFile(qrPath);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Get QR Code as JSON (for debugging)
+app.get('/api/wa/qr/json', (req, res) => {
+    try {
+        if (!currentQR) {
+            return res.status(400).json({
+                success: false,
+                message: 'QR Code not available',
+                status: isAuthenticated ? 'authenticated' : 'pending'
+            });
+        }
+
+        QRCode.toDataURL(currentQR, (err, url) => {
+            if (err) {
+                return res.status(500).json({
+                    success: false,
+                    message: 'Error generating QR Code'
+                });
+            }
+
+            res.json({
+                success: true,
+                qr: url,
+                message: 'QR Code as base64'
+            });
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Get Status
+app.get('/api/wa/status', (req, res) => {
+    res.json({
+        success: true,
+        authenticated: isAuthenticated,
+        qrAvailable: currentQR !== null,
+        status: isAuthenticated ? 'connected' : (currentQR ? 'waiting_scan' : 'initializing')
+    });
+});
+
+// Health Check
+app.get('/health', (req, res) => {
+    res.json({
+        success: true,
+        message: 'Server is running',
+        waStatus: isAuthenticated ? 'connected' : 'disconnected'
+    });
+});
+
+// ========================
 // ERROR HANDLING
 // ========================
 process.on('unhandledRejection', (reason, promise) => {
@@ -184,7 +296,6 @@ const gracefulShutdown = async (signal) => {
     console.log(`\n🛑 Received ${signal}, shutting down gracefully...`);
 
     try {
-        // Jangan logout, langsung destroy
         console.log('🔌 Destroying client...');
         await client.destroy().catch(() => {});
 
@@ -200,8 +311,10 @@ process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 
 // ========================
-// INITIALIZE CLIENT
+// START SERVER
 // ========================
+const PORT = process.env.PORT || 3000;
+
 console.log('🚀 Memulai WhatsApp Bot...');
 console.log('📝 Tips: Jika disconnect berulang, pastikan:');
 console.log('   1. Update WhatsApp di phone ke versi terbaru');
@@ -214,6 +327,13 @@ client.initialize().catch(err => {
     console.log('   - Cek folder .wwebjs_auth ada atau tidak');
     console.log('   - Coba update whatsapp-web.js: npm update whatsapp-web.js');
     process.exit(1);
+});
+
+// Start Express server
+app.listen(PORT, () => {
+    console.log(`\n📡 API Server running on http://localhost:${PORT}`);
+    console.log(`📊 Status: http://localhost:${PORT}/health`);
+    console.log(`📱 QR Code: http://localhost:${PORT}/api/wa/qr\n`);
 });
 
 module.exports = client;
