@@ -1,62 +1,61 @@
 name: Deploy WA Commerce Apps
 
-
 on:
- push:
-   branches:
-     - staging
-env:
- IMAGE_NAME: wa-commerce
- GHCR_REGISTRY: ghcr.io
- GHCR_USERNAME: ${{ secrets.GHCR_USERNAME }}
- GHCR_PAT: ${{ secrets.GHCR_PAT }}
- DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
- API_TOKEN: ${{ secrets.API_TOKEN }}
- STACK_STAGING: wa-commerce
- IMAGE_TAG: latest
+  push:
+    branches:
+      - staging
 
+env:
+  IMAGE_NAME: wa-commerce
+  GHCR_REGISTRY: ghcr.io
+  GHCR_PAT: ${{ secrets.GHCR_PAT }}
+  DEPLOY_URL: ${{ secrets.DEPLOY_URL }}
+  API_TOKEN: ${{ secrets.API_TOKEN }}
+  STACK_STAGING: wa-commerce
 
 jobs:
- build-and-push:
-   runs-on: ubuntu-latest
-   steps:
-     - name: Checkout Repository
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Repository
         uses: actions/checkout@v4
-      
+
+      - name: Convert Username to Lowercase
+        id: username
+        run: |
+          USERNAME_LOWER=$(echo "${{ secrets.GHCR_USERNAME }}" | tr '[:upper:]' '[:lower:]')
+          echo "lower=$USERNAME_LOWER" >> $GITHUB_OUTPUT
+
       - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ secrets.GHCR_USERNAME }}
-          password: ${{ secrets.GHCR_PAT }}
-      
-      - name: Set Image Tag and Lowercase Username
+        run: echo "${{ secrets.GHCR_PAT }}" | docker login ghcr.io -u ${{ steps.username.outputs.lower }} --password-stdin
+
+      - name: Set Image Tag
         id: set-tag
         run: |
           if [[ "${{ github.ref }}" == refs/heads/staging ]]; then
-            echo "IMAGE_TAG=staging" >> $GITHUB_ENV
+            echo "tag=latest" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == refs/heads/production ]]; then
-            echo "IMAGE_TAG=production" >> $GITHUB_ENV
-          elif [[ "${{ github.ref }}" == refs/heads/main ]]; then
-            echo "IMAGE_TAG=latest" >> $GITHUB_ENV
+            echo "tag=stable" >> $GITHUB_OUTPUT
           else
-            echo "IMAGE_TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_ENV
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
-          
-          REGISTRY_USERNAME=$(echo "${{ secrets.GHCR_USERNAME }}" | tr '[:upper:]' '[:lower:]')
-          echo "REGISTRY_USERNAME=$REGISTRY_USERNAME" >> $GITHUB_ENV
 
-     - name: Build and Push Docker Image
-       run: |
-         docker build -t $GHCR_REGISTRY/$GHCR_USERNAME/$IMAGE_NAME:$IMAGE_TAG --build-arg ENV_BASE64="${{ secrets.ENV_BASE64 }}" .
-         docker push $GHCR_REGISTRY/$GHCR_USERNAME/$IMAGE_NAME:$IMAGE_TAG
+      - name: Build and Push Docker Image
+        run: |
+          IMAGE_TAG=${{ steps.set-tag.outputs.tag }}
+          GHCR_USERNAME=${{ steps.username.outputs.lower }}
+          docker build -t ${{ env.GHCR_REGISTRY }}/$GHCR_USERNAME/${{ env.IMAGE_NAME }}:$IMAGE_TAG \
+            --build-arg ENV_BASE64="${{ secrets.ENV_BASE64 }}" .
+          docker push ${{ env.GHCR_REGISTRY }}/$GHCR_USERNAME/${{ env.IMAGE_NAME }}:$IMAGE_TAG
 
-
- deploy:
-   needs: build-and-push
-   runs-on: ubuntu-latest
-   steps:
-     - name: Trigger Swarmpit Deployment
-       run: |
-         curl --location --request POST "${{ env.DEPLOY_URL }}/api/stacks/${{ env.STACK_STAGING }}/redeploy" \
-           --header "Authorization: ${{ env.API_TOKEN }}"
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Swarmpit Deployment
+        run: |
+          curl --location --request POST "${{ env.DEPLOY_URL }}/api/stacks/${{ env.STACK_STAGING }}/redeploy" \
+            --header "Authorization: ${{ env.API_TOKEN }}"
