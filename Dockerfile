@@ -64,10 +64,6 @@ WORKDIR /var/app
 COPY --from=builder /app/node_modules ./node_modules
 COPY . .
 
-# Set proper permissions (bukan 777)
-RUN chown -R node:node /var/app
-USER node
-
 EXPOSE 3000
 
 CMD ["node", "app.js"]
