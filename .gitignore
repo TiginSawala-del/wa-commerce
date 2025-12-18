@@ -15,6 +15,7 @@ yarn-error.log*
 # System files
 .DS_Store
 Thumbs.db
+wa_qr_latest.png
 
 # VSCode & editor configs (opsional)
 .vscode/
