@@ -196,8 +196,125 @@ client.on('message', async (message) => {
 // ========================
 // API ENDPOINTS
 // ========================
+// Endpoint untuk check status QR
+app.get('/api/wa/status', (req, res) => {
+    res.json({
+        success: true,
+        authenticated: isAuthenticated,
+        qrAvailable: currentQR !== null,
+        status: isAuthenticated ? 'connected' : (currentQR ? 'waiting_scan' : 'generating')
+    });
+});
 
-// Get QR Code (serve PNG file)
+// Endpoint untuk reset + wait QR
+app.get('/api/wa/qr/reset', async (req, res) => {
+    try {
+        const authPath = path.join(__dirname, '.wwebjs_auth');
+        const cachePath = path.join(__dirname, '.wwebjs_cache');
+        
+        console.log('🔄 Starting WhatsApp reset...');
+        
+        // Reset state
+        isAuthenticated = false;
+        qrDisplayed = false;
+        currentQR = null;
+        
+        // Logout dulu
+        if (client && client.info) {
+            try {
+                console.log('📴 Logging out...');
+                await client.logout();
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            } catch (err) {
+                console.warn('⚠️ Logout error:', err.message);
+            }
+        }
+        
+        // Destroy client
+        if (client) {
+            try {
+                console.log('🔌 Destroying client...');
+                await client.destroy();
+                await new Promise(resolve => setTimeout(resolve, 3000));
+            } catch (err) {
+                console.warn('⚠️ Destroy error:', err.message);
+            }
+        }
+        
+        // Delete auth folder
+        if (fs.existsSync(authPath)) {
+            try {
+                fs.rmSync(authPath, { recursive: true, force: true });
+                console.log('🗑️ Folder .wwebjs_auth dihapus');
+            } catch (err) {
+                console.error('❌ Error deleting auth:', err.message);
+            }
+        }
+        
+        // Delete cache folder
+        if (fs.existsSync(cachePath)) {
+            try {
+                fs.rmSync(cachePath, { recursive: true, force: true });
+                console.log('🗑️ Folder .wwebjs_cache dihapus');
+            } catch (err) {
+                console.error('❌ Error deleting cache:', err.message);
+            }
+        }
+        
+        // Wait untuk process fully close
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        
+        // Reinitialize client
+        console.log('🚀 Reinitializing client...');
+        client.initialize().catch(err => {
+            console.error('❌ Error reinitializing client:', err.message);
+        });
+        
+        // Poll untuk QR sampai tersedia (max 30 detik)
+        let qrReady = false;
+        const maxAttempts = 30;
+        let attempts = 0;
+        
+        const checkQR = setInterval(() => {
+            attempts++;
+            
+            if (currentQR) {
+                clearInterval(checkQR);
+                qrReady = true;
+                console.log('✅ QR Code ready!');
+                
+                res.json({
+                    success: true,
+                    message: 'WhatsApp bot reset. QR Code generated.',
+                    status: 'qr_ready',
+                    qrUrl: '/api/wa/qr',
+                    attempts: attempts
+                });
+            } else if (attempts >= maxAttempts) {
+                clearInterval(checkQR);
+                console.warn('⚠️ QR timeout after 30 seconds');
+                
+                if (!res.headersSent) {
+                    res.json({
+                        success: false,
+                        message: 'QR Code generation timeout. Try again in a moment.',
+                        status: 'timeout',
+                        attempts: attempts
+                    });
+                }
+            }
+        }, 1000);
+        
+    } catch (error) {
+        console.error('❌ Reset error:', error.message);
+        res.status(500).json({
+            success: false,
+            message: error.message
+        });
+    }
+});
+
+// Endpoint untuk get QR (hanya serve, ga delete)
 app.get('/api/wa/qr', (req, res) => {
     try {
         const qrPath = path.join(__dirname, 'wa_qr_latest.png');
@@ -210,8 +327,11 @@ app.get('/api/wa/qr', (req, res) => {
             });
         }
 
-        // Serve PNG file langsung
+        // Serve PNG file dengan cache busting
         res.type('image/png');
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
         res.sendFile(qrPath);
     } catch (error) {
         res.status(500).json({
@@ -220,7 +340,6 @@ app.get('/api/wa/qr', (req, res) => {
         });
     }
 });
-
 // Get QR Code as JSON (for debugging)
 app.get('/api/wa/qr/json', (req, res) => {
     try {
@@ -252,16 +371,6 @@ app.get('/api/wa/qr/json', (req, res) => {
             message: error.message
         });
     }
-});
-
-// Get Status
-app.get('/api/wa/status', (req, res) => {
-    res.json({
-        success: true,
-        authenticated: isAuthenticated,
-        qrAvailable: currentQR !== null,
-        status: isAuthenticated ? 'connected' : (currentQR ? 'waiting_scan' : 'initializing')
-    });
 });
 
 // Health Check

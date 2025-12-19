@@ -613,7 +613,7 @@ const handleAdminFlow = async (client, msg, state) => {
 // CUSTOMER FLOW HANDLER
 // ========================
 const handleCustomerFlow = async (client, msg, state) => {
-  const sender = msg.from;
+  const sender = msg.from.split('@')[0];
   const message = msg.body.trim();
   const normMsg = normalizeInput(message);
 
@@ -804,9 +804,19 @@ const addProduct = async (productData) => {
 const showProducts = async (msg) => {
   const conn = await getConnection();
   try {
-    const [rows] = await conn.execute(
-      "SELECT * FROM products WHERE stock > 0 ORDER BY id DESC LIMIT 50"
-    );
+    // Check if user is admin
+    const isAdmin = msg.from === process.env.ADMIN_NUMBER;
+    
+    // Query berbeda tergantung admin atau user biasa
+    let query = "SELECT * FROM products";
+    
+    if (!isAdmin) {
+      query += " WHERE stock > 0";
+    }
+    
+    query += " ORDER BY id DESC LIMIT 50";
+    
+    const [rows] = await conn.execute(query);
 
     if (rows.length === 0) {
       await msg.reply("📦 Belum ada produk tersedia saat ini.");
@@ -814,10 +824,22 @@ const showProducts = async (msg) => {
     }
 
     let message = "*📦 DAFTAR PRODUK*\n\n";
+    
+    // Tambahkan label jika admin
+    if (isAdmin) {
+      message += "🔐 *MODE ADMIN* - Tampil semua produk\n\n";
+    }
+    
     rows.forEach((product, index) => {
       message += `${index + 1}. *${product.name}*\n`;
       message += `   💰 Harga: Rp ${product.price.toLocaleString("id-ID")}\n`;
       message += `   📊 Stok: ${product.stock} unit\n`;
+      
+      // Highlight stok 0 untuk admin
+      if (isAdmin && product.stock === 0) {
+        message += `   ⚠️ STOK HABIS\n`;
+      }
+      
       message += `   🆔 ID: ${product.id}\n\n`;
     });
 
@@ -1073,9 +1095,12 @@ const showOrdersByDateRange = async (msg, startDate, endDate) => {
   }
 };
 
-const showCustomerOrders = async (msg, customer) => {
+const showCustomerOrders = async (msg) => {
   const conn = await getConnection();
   try {
+    // Extract nomor HP dari msg.from (format: 628xxxxxx@c.us)
+    const phoneNumber = msg.from.split('@')[0];
+    
     const [orders] = await conn.execute(
       `
         SELECT o.*, COUNT(od.id) as items 
@@ -1086,7 +1111,7 @@ const showCustomerOrders = async (msg, customer) => {
         ORDER BY o.date_order DESC
         LIMIT 50
       `,
-      [customer]
+      [phoneNumber]
     );
 
     if (orders.length === 0) {
@@ -1112,7 +1137,8 @@ const showCustomerOrders = async (msg, customer) => {
       let total = 0;
 
       message += `🆔 Order ID: *${order.id}*\n`;
-      message += `📅 ${new Date(order.date_order).toLocaleString("id-ID")}\n\n`;
+      message += `📅 ${new Date(order.date_order).toLocaleString("id-ID")}\n`;
+      message += `📊 Status: *${order.status || 'Pending'}*\n\n`;
 
       details.forEach((item) => {
         const subtotal = item.qty * item.temp_price;
@@ -1135,6 +1161,9 @@ const showCustomerOrders = async (msg, customer) => {
     message += `Ketik *menu* untuk kembali`;
 
     await msg.reply(message);
+  } catch (error) {
+    console.error('❌ Error showing customer orders:', error.message);
+    await msg.reply('❌ Terjadi kesalahan. Silakan coba lagi.');
   } finally {
     await safeCloseConnection(conn);
   }
