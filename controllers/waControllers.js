@@ -1100,18 +1100,20 @@ const showCustomerOrders = async (msg) => {
   try {
     // Extract nomor HP dari msg.from (format: 628xxxxxx@c.us)
     const phoneNumber = msg.from.split('@')[0];
-    
+    const today = new Date().toISOString().split("T")[0];
+
     const [orders] = await conn.execute(
-      `
+    `
         SELECT o.*, COUNT(od.id) as items 
         FROM orders o 
         LEFT JOIN order_detail od ON o.id = od.id_order 
-        WHERE o.customer = ?
+        WHERE o.customer = ? 
+        AND DATE(o.date_order) = ?
         GROUP BY o.id 
         ORDER BY o.date_order DESC
         LIMIT 50
-      `,
-      [phoneNumber]
+    `,
+    [phoneNumber, today]
     );
 
     if (orders.length === 0) {
