@@ -23,6 +23,7 @@ let currentQR = null;
 // ========================
 // CLEANUP FUNCTION
 // ========================
+
 const cleanupAuth = () => {
     const authPath = path.join(__dirname, '.wwebjs_auth');
     const cachePath = path.join(__dirname, '.wwebjs_cache');
